@@ -11,6 +11,10 @@
 #include "util/buffer_util.h"
 #include "util/log.h"
 
+
+
+
+
 #define BUFSIZE 0x10000
 
 #define HEADER_SIZE 12
@@ -59,6 +63,7 @@ stream_recv_packet(struct stream *stream, AVPacket *packet) {
 
 static bool
 push_packet_to_sinks(struct stream *stream, const AVPacket *packet) {
+	static int packetCounter = 0;
     for (unsigned i = 0; i < stream->sink_count; ++i) {
         struct sc_packet_sink *sink = stream->sinks[i];
         if (!sink->ops->push(sink, packet)) {
@@ -66,6 +71,9 @@ push_packet_to_sinks(struct stream *stream, const AVPacket *packet) {
             return false;
         }
     }
+    packetCounter++;
+    if((packetCounter%100) == 0)
+    	LOGI("%d %d", packetCounter, packet->pos);
 
     return true;
 }
@@ -193,7 +201,8 @@ static int
 run_stream(void *data) {
     struct stream *stream = data;
     const char *codec_name;
-
+    //GET PARAM DATA
+    //1. GET CODEC
     AVCodec *codec = avcodec_find_decoder(AV_CODEC_ID_H264);
     if (!codec) {
         LOGE("H.264 decoder not found");
@@ -203,7 +212,7 @@ run_stream(void *data) {
     	codec_name = codec->long_name;
     	LOGE("Codec found: %s", codec_name);
     }
-
+    //2. GET CODEC CONTEXT
     stream->codec_ctx = avcodec_alloc_context3(codec);
     if (!stream->codec_ctx) {
         LOGC("Could not allocate codec context");
@@ -261,6 +270,7 @@ finally_free_codec_ctx:
     avcodec_free_context(&stream->codec_ctx);
 end:
     stream->cbs->on_eos(stream, stream->cbs_userdata);
+
 
     return 0;
 }

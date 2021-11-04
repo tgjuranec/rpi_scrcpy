@@ -354,6 +354,7 @@ scrcpy(const struct scrcpy_options *options) {
         stream_add_sink(&s->stream, &rec->packet_sink);
     }
 
+    //MOUSE AND KEYBOARD CONTROL
     if (options->control) {
         if (!controller_init(&s->controller, s->server.control_socket)) {
             goto end;
@@ -399,7 +400,7 @@ scrcpy(const struct scrcpy_options *options) {
             goto end;
         }
         screen_initialized = true;
-
+        //
         decoder_add_sink(&s->decoder, &s->screen.frame_sink);
     }
 

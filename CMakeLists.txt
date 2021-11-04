@@ -75,6 +75,7 @@ link_directories(${CMAKE_SYSROOT}/usr/lib/arm-linux-gnueabihf)
 link_directories(${CMAKE_SYSROOT}/usr/lib)
 link_directories(${CMAKE_SYSROOT}/lib/arm-linux-gnueabihf)
 link_directories(${CMAKE_SYSROOT}/lib)
+link_directories(${CMAKE_SYSROOT}/opt/vc/lib)
 
 include_directories(${SECOND_INCLUDE_SYSROOT}/usr/include)
 include_directories(${SECOND_INCLUDE_SYSROOT}/usr/include/arm-linux-gnueabihf 
@@ -82,6 +83,9 @@ android
 sys/unix 
 trait 
 util)
+include_directories(/home/tgjuranec/rpiProgs/userland/interface)
+include_directories(/home/tgjuranec/data.img/download_source/rpiSysRoot/opt/vc/include)
+include_directories(/home/tgjuranec/rpiProgs/userland/host_applications/linux/libs/bcm_host/include)
 
 set(AVFORMAT_LIBRARY avformat)
 set(AVCODEC_LIBRARY avcodec)
@@ -112,5 +116,19 @@ target_link_libraries(scrcpy PUBLIC
 	${AVUTIL_LIBRARY}
 	${SDL2_LIBRARY}
 	${AVFILTER_LIBRARY}
+	vcsm  
+	mmal 
+	mmal_core
+	mmal_util
+	mmal_vc_client
+	brcmGLESv2 
+	brcmEGL 
+	openmaxil 
+	bcm_host 
+	vcos 
+	vchiq_arm 
+	pthread 
+	rt 
+	m
 	)
 

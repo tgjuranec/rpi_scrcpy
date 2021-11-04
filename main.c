@@ -54,7 +54,7 @@ main(int argc, char *argv[]) {
     };
 
 #ifndef NDEBUG
-    args.opts.log_level = SC_LOG_LEVEL_DEBUG;
+    args.opts.log_level = SC_LOG_LEVEL_INFO;
 #endif
 
     if (!scrcpy_parse_args(&args, argc, argv)) {
