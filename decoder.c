@@ -9,7 +9,7 @@
 
 /** Downcast packet_sink to decoder */
 #define DOWNCAST(SINK) container_of(SINK, struct decoder, packet_sink)
-//#define RPI_H264_HDEC
+#define RPI_H264_HDEC
 
 #ifdef RPI_H264_HDEC
 #include "rpi_h264.h"
@@ -187,6 +187,30 @@ decoder_open(struct decoder *decoder, const AVCodec *codec) {
         avcodec_free_context(&decoder->codec_ctx);
         return false;
     }
+    int nBytes = avpicture_get_size(AV_PIX_FMT_YUV420P, 384, 800);
+    LOGE("Frame size: %d",nBytes);
+    const uint8_t *frBuffer = (const uint8_t *) av_malloc(nBytes);
+    if(!frBuffer ){
+    	av_frame_free(&decoder->frame);
+        avcodec_close(decoder->codec_ctx);
+        avcodec_free_context(&decoder->codec_ctx);
+        return false;
+    }
+    avpicture_fill((AVPicture *)decoder->frame, frBuffer, AV_PIX_FMT_YUV420P,360,800);
+    decoder->frame->linesize[0] = 384;
+    decoder->frame->linesize[1] = 192;
+    decoder->frame->linesize[2] = 192;
+    decoder->frame->width = 360;
+    decoder->frame->height = 800;
+    decoder->frame->format = AV_PIX_FMT_YUV420P;
+    decoder->frame->pict_type = AV_PICTURE_TYPE_I;
+    decoder->frame->pts = 0;
+    decoder->frame->pkt_pts = 0;
+    decoder->frame->pkt_dts = 0;
+    decoder->frame->color_range = AVCOL_RANGE_MPEG;
+    decoder->frame->color_primaries = AVCOL_PRI_BT470BG;
+    decoder->frame->color_trc = AVCOL_TRC_SMPTE170M;
+    decoder->frame->colorspace = AVCHROMA_LOC_LEFT;
 
     if (!decoder_open_sinks(decoder)) {
         LOGE("Could not open decoder sinks");
@@ -201,6 +225,7 @@ decoder_open(struct decoder *decoder, const AVCodec *codec) {
 
 static void
 decoder_close(struct decoder *decoder) {
+	free(decoder->frame->data[0]);
     decoder_close_sinks(decoder);
     av_frame_free(&decoder->frame);
     avcodec_close(decoder->codec_ctx);
@@ -226,7 +251,7 @@ decoder_close(struct decoder *decoder) {
     if (context.queue)
        mmal_queue_destroy(context.queue);
 
-    SOURCE_CLOSE();
+
     vcos_semaphore_delete(&context.semaphore);
 #endif
 }
@@ -266,6 +291,11 @@ decoder_push(struct decoder *decoder, const AVPacket *packet) {
     	//FROM FFMEGS' PACKET TO MMAL'S BUFFER
        buffer->data = packet->data;
        buffer->length = packet->size;
+       static int count = 0;
+       if(count%20 == 0){
+    	   fprintf(stderr,"%d. packet size: %d\n", count,buffer->length);
+       }
+       count++;
 
        if(!buffer->length) eos_sent = MMAL_TRUE;
 
@@ -342,14 +372,41 @@ decoder_push(struct decoder *decoder, const AVPacket *packet) {
        }
        else
        {
-          fprintf(stderr, "decoded frame (flags %x, size %d) count %d\n", buffer->flags, buffer->length, out_count);
+          fprintf(stderr, "decoded frame (flags %x, size %d, offset %d) count %d\n",
+        		  buffer->flags, buffer->length, buffer->offset,out_count);
 
           // Do something here with the content of the buffer
+          //from the mmal we get 460800 bytes YUV420
+          //data[0] - 307200 = 384*800*6/8 8bita po pixelu
+          //data[1] - 76800 = 192*800*6/8 2bita po pixelu
+          //data[2] - 76800 = 192*800*6/8 2bita po pixelu
+          AVFrame *fr = decoder->frame;
+          memcpy(fr->data[0],buffer->data, buffer->length*2/3);
+          memcpy(fr->data[1],buffer->data + buffer->length*2/3,buffer->length/6);
+          memcpy(fr->data[2],buffer->data + buffer->length*5/6,buffer->length/6);
+ /*         decoder->frame->data[0] = buffer->data;
 
-          memcpy(decoder->frame->data[0],buffer->data,buffer->length);
-          decoder->frame->linesize[0] = buffer->length;
+          decoder->frame->data[1] = buffer->data + buffer->length/2;
+          decoder->frame->data[2] = buffer->data + buffer->length*3/4;
+*/
+ /*         LOGE("AVFrame: %p %d %p %d %p %d\n%p\n%d x %d\nFormat: %d\nKeyFrame: %d\n Crop: (%d, %d, %d, %d)\n%d",
+          		fr->data[0], //0xa6ab4020,...
+          		fr->linesize[0], //384
+  				fr->data[1], //0xa6b681c0,....
+          		fr->linesize[1],
+  				fr->data[2],
+          		fr->linesize[2],
+  				fr->extended_data, //0xa6b24d90
+  				fr->width, fr->height, //360x 800
+  				fr->format,
+  				fr->key_frame,
+  				fr->crop_left, fr->crop_top, fr->crop_right, fr->crop_bottom,
+  				fr->sample_rate
+  				);*/
           bool ok = push_frame_to_sinks(decoder, decoder->frame);
-          av_frame_unref(decoder->frame);
+          //following function resets all data in AVFrame and only first frame is valid
+          //we use one AVFrame object for all frames (no unref commited).
+          //av_frame_unref(decoder->frame);
           mmal_buffer_header_release(buffer);
           out_count++;
        }
@@ -371,7 +428,7 @@ decoder_push(struct decoder *decoder, const AVPacket *packet) {
     }
     static int count = 0;
     if(count %20 == 25){
-    LOGE("AVPacket: %d, %d, data: %d, Size: %d, \n%d \n%d\n%d %d",
+    LOGD("AVPacket: %d, %d, data: %d, Size: %d, \n%d \n%d\n%d %d",
     		packet->pts,  //52964249
 			packet->dts,  //0
 			packet->data[0], //52964249
@@ -399,13 +456,20 @@ decoder_push(struct decoder *decoder, const AVPacket *packet) {
         (void) ok;
         AVFrame *fr = decoder->frame;
         if(count % 1 == 0){
-        LOGE("AVFrame: %p %p %d\n %p\n %d x %d\n%d",
+        LOGE("AVFrame: %p %d %p %d %p %d\n%p\n%d x %d\nFormat: %d\nKeyFrame: %d\n Crop: (%d, %d, %d, %d)\n%d",
         		fr->data[0], //0xa6ab4020,...
-				fr->data[1], //0xa6b681c0,....
         		fr->linesize[0], //384
+				fr->data[1], //0xa6b681c0,....
+        		fr->linesize[1],
+				fr->data[2],
+        		fr->linesize[2],
 				fr->extended_data, //0xa6b24d90
 				fr->width, fr->height, //360x 800
-				fr->format); //0
+				fr->format,
+				fr->key_frame,
+				fr->crop_left, fr->crop_top, fr->crop_right, fr->crop_bottom,
+				fr->sample_rate
+				);
         }
 
         av_frame_unref(decoder->frame);
@@ -482,8 +546,8 @@ decoder_init(struct decoder *decoder) {
     MMAL_ES_FORMAT_T *format_in = mmal_decoder->input[0]->format;
     format_in->type = MMAL_ES_TYPE_VIDEO;
     format_in->encoding = MMAL_ENCODING_H264;
-    format_in->es->video.width = 0;
-    format_in->es->video.height = 0;
+    format_in->es->video.width = 360;
+    format_in->es->video.height = 800;
     format_in->es->video.frame_rate.num = 0;
     format_in->es->video.frame_rate.den = 1;
     format_in->es->video.par.num = 1;
@@ -550,6 +614,7 @@ decoder_init(struct decoder *decoder) {
     /* Component won't start processing data until it is enabled. */
     status = mmal_component_enable(mmal_decoder);
     CHECK_STATUS(status, "failed to enable mmal_decoder component");
+    log_format(mmal_decoder->output[0]->format, mmal_decoder->output[0]);
 
     /* Start decoding */
     fprintf(stderr, "start decoding\n");

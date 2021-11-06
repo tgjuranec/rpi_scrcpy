@@ -57,7 +57,7 @@ stream_recv_packet(struct stream *stream, AVPacket *packet) {
     }
 
     packet->pts = pts != NO_PTS ? (int64_t) pts : AV_NOPTS_VALUE;
-
+    packet->size = len;
     return true;
 }
 
