@@ -205,7 +205,7 @@ decoder_open(struct decoder *decoder, const AVCodec *codec) {
     decoder->frame->format = AV_PIX_FMT_YUV420P;
     decoder->frame->pict_type = AV_PICTURE_TYPE_I;
     decoder->frame->pts = 0;
-    decoder->frame->pkt_pts = 0;
+    //decoder->frame->pkt_pts = 0;
     decoder->frame->pkt_dts = 0;
     decoder->frame->color_range = AVCOL_RANGE_MPEG;
     decoder->frame->color_primaries = AVCOL_PRI_BT470BG;
@@ -225,7 +225,7 @@ decoder_open(struct decoder *decoder, const AVCodec *codec) {
 
 static void
 decoder_close(struct decoder *decoder) {
-	free(decoder->frame->data[0]);
+
     decoder_close_sinks(decoder);
     av_frame_free(&decoder->frame);
     avcodec_close(decoder->codec_ctx);
@@ -289,23 +289,28 @@ decoder_push(struct decoder *decoder, const AVPacket *packet) {
     {
        //SOURCE_READ_DATA_INTO_BUFFER(buffer);
     	//FROM FFMEGS' PACKET TO MMAL'S BUFFER
-       buffer->data = packet->data;
-       buffer->length = packet->size;
-       static int count = 0;
-       if(count%20 == 0){
-    	   fprintf(stderr,"%d. packet size: %d\n", count,buffer->length);
-       }
-       count++;
 
-       if(!buffer->length) eos_sent = MMAL_TRUE;
+    	//WE get errors.... Error event signalled... status 7
+    	//Possible reasons:
+    	//1. too large packet
 
-       buffer->flags = buffer->length ? 0 : MMAL_BUFFER_HEADER_FLAG_EOS;
-       buffer->pts = buffer->dts = MMAL_TIME_UNKNOWN;
-       //fprintf(stderr, "sending %i bytes\n", (int)buffer->length);
-       status = mmal_port_send_buffer(mmal_decoder->input[0], buffer);
-       CHECK_STATUS(status, "failed to send buffer");
-       in_count++;
-       //fprintf(stderr, "Input buffer %p to port %s. in_count %u\n", buffer, mmal_decoder->input[0]->name, in_count);
+    	if(packet->size > 80000){
+    		fprintf(stderr,"IN:%d - OUT:%d. packet size: %d\n", in_count, out_count,packet->size);
+    	}
+		   buffer->data = packet->data;
+		   buffer->length = packet->size;
+
+
+		   if(!buffer->length) eos_sent = MMAL_TRUE;
+
+		   buffer->flags = buffer->length ? 0 : MMAL_BUFFER_HEADER_FLAG_EOS;
+		   buffer->pts = buffer->dts = MMAL_TIME_UNKNOWN;
+		   //fprintf(stderr, "sending %i bytes\n", (int)buffer->length);
+		   status = mmal_port_send_buffer(mmal_decoder->input[0], buffer);
+		   CHECK_STATUS(status, "failed to send buffer");
+		   in_count++;
+
+
     }
 
     /* Get our output frames */
@@ -381,13 +386,14 @@ decoder_push(struct decoder *decoder, const AVPacket *packet) {
           //data[1] - 76800 = 192*800*6/8 2bita po pixelu
           //data[2] - 76800 = 192*800*6/8 2bita po pixelu
           AVFrame *fr = decoder->frame;
+/*COPY DATA*/
           memcpy(fr->data[0],buffer->data, buffer->length*2/3);
           memcpy(fr->data[1],buffer->data + buffer->length*2/3,buffer->length/6);
           memcpy(fr->data[2],buffer->data + buffer->length*5/6,buffer->length/6);
- /*         decoder->frame->data[0] = buffer->data;
-
-          decoder->frame->data[1] = buffer->data + buffer->length/2;
-          decoder->frame->data[2] = buffer->data + buffer->length*3/4;
+/*
+          decoder->frame->data[0] = buffer->data;
+          decoder->frame->data[1] = buffer->data + buffer->length*2/3;
+          decoder->frame->data[2] = buffer->data + buffer->length*5/6;
 */
  /*         LOGE("AVFrame: %p %d %p %d %p %d\n%p\n%d x %d\nFormat: %d\nKeyFrame: %d\n Crop: (%d, %d, %d, %d)\n%d",
           		fr->data[0], //0xa6ab4020,...
@@ -548,10 +554,6 @@ decoder_init(struct decoder *decoder) {
     format_in->encoding = MMAL_ENCODING_H264;
     format_in->es->video.width = 360;
     format_in->es->video.height = 800;
-    format_in->es->video.frame_rate.num = 0;
-    format_in->es->video.frame_rate.den = 1;
-    format_in->es->video.par.num = 1;
-    format_in->es->video.par.den = 1;
 
     status = mmal_port_format_commit(mmal_decoder->input[0]);
     CHECK_STATUS(status, "failed to commit format");
@@ -576,7 +578,7 @@ decoder_init(struct decoder *decoder) {
     /* The format of both ports is now set so we can get their buffer requirements and create
      * our buffer headers. We use the buffer pool API to create these. */
     mmal_decoder->input[0]->buffer_num = mmal_decoder->input[0]->buffer_num_recommended;
-    mmal_decoder->input[0]->buffer_size = mmal_decoder->input[0]->buffer_size_recommended;
+    mmal_decoder->input[0]->buffer_size = 100000;
     mmal_decoder->output[0]->buffer_num = mmal_decoder->output[0]->buffer_num_recommended;
     mmal_decoder->output[0]->buffer_size = mmal_decoder->output[0]->buffer_size_recommended;
     pool_in = mmal_port_pool_create(mmal_decoder->input[0],

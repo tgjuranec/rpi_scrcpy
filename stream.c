@@ -63,7 +63,6 @@ stream_recv_packet(struct stream *stream, AVPacket *packet) {
 
 static bool
 push_packet_to_sinks(struct stream *stream, const AVPacket *packet) {
-	static int packetCounter = 0;
     for (unsigned i = 0; i < stream->sink_count; ++i) {
         struct sc_packet_sink *sink = stream->sinks[i];
         if (!sink->ops->push(sink, packet)) {
@@ -71,10 +70,6 @@ push_packet_to_sinks(struct stream *stream, const AVPacket *packet) {
             return false;
         }
     }
-    packetCounter++;
-    if((packetCounter%100) == 0)
-    	LOGI("%d %d", packetCounter, packet->pos);
-
     return true;
 }
 
