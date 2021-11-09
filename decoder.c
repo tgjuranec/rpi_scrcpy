@@ -18,7 +18,8 @@
     MMAL_COMPONENT_T *mmal_decoder = NULL;
     MMAL_POOL_T *pool_in = NULL, *pool_out = NULL;
     MMAL_BOOL_T eos_sent = MMAL_FALSE, eos_received = MMAL_FALSE;
-    unsigned int in_count = 0, out_count = 0, new_frame = 0;
+    unsigned int in_count = 0, out_count = 0;
+    int new_frame = 0;
     MMAL_BUFFER_HEADER_T *buffer;
 
 /** Context for our application */
@@ -171,6 +172,34 @@ decoder_open_sinks(struct decoder *decoder) {
     return true;
 }
 
+static bool framebuff_alloc(struct decoder *decoder,int width, int height){
+	int aligned_width = width + (PROC_ALIGNMENT - width%PROC_ALIGNMENT);
+    int nBytes = avpicture_get_size(AV_PIX_FMT_YUV420P, aligned_width, height);
+    const uint8_t *frBuffer = (const uint8_t *) av_malloc(nBytes);
+    if(!frBuffer ){
+    	av_frame_free(&decoder->frame);
+        avcodec_close(decoder->codec_ctx);
+        avcodec_free_context(&decoder->codec_ctx);
+        return false;
+    }
+    avpicture_fill((AVPicture *)decoder->frame, frBuffer, AV_PIX_FMT_YUV420P,width, height);
+    decoder->frame->linesize[0] = aligned_width;
+    decoder->frame->linesize[1] = aligned_width/2;
+    decoder->frame->linesize[2] = aligned_width/2;
+    decoder->frame->width = width;
+    decoder->frame->height = height;
+    decoder->frame->format = AV_PIX_FMT_YUV420P;
+    decoder->frame->pict_type = AV_PICTURE_TYPE_I;
+    decoder->frame->pts = 0;
+    //decoder->frame->pkt_pts = 0;
+    decoder->frame->pkt_dts = 0;
+    decoder->frame->color_range = AVCOL_RANGE_MPEG;
+    decoder->frame->color_primaries = AVCOL_PRI_BT470BG;
+    decoder->frame->color_trc = AVCOL_TRC_SMPTE170M;
+    decoder->frame->colorspace = AVCHROMA_LOC_LEFT;
+    return true;
+}
+
 static bool
 decoder_open(struct decoder *decoder, const AVCodec *codec) {
     decoder->codec_ctx = avcodec_alloc_context3(codec);
@@ -192,30 +221,7 @@ decoder_open(struct decoder *decoder, const AVCodec *codec) {
         avcodec_free_context(&decoder->codec_ctx);
         return false;
     }
-    int nBytes = avpicture_get_size(AV_PIX_FMT_YUV420P, 384, 800);
-    LOGE("Decoder: %p",decoder);
-    const uint8_t *frBuffer = (const uint8_t *) av_malloc(nBytes);
-    if(!frBuffer ){
-    	av_frame_free(&decoder->frame);
-        avcodec_close(decoder->codec_ctx);
-        avcodec_free_context(&decoder->codec_ctx);
-        return false;
-    }
-    avpicture_fill((AVPicture *)decoder->frame, frBuffer, AV_PIX_FMT_YUV420P,360,800);
-    decoder->frame->linesize[0] = 384;
-    decoder->frame->linesize[1] = 192;
-    decoder->frame->linesize[2] = 192;
-    decoder->frame->width = 360;
-    decoder->frame->height = 800;
-    decoder->frame->format = AV_PIX_FMT_YUV420P;
-    decoder->frame->pict_type = AV_PICTURE_TYPE_I;
-    decoder->frame->pts = 0;
-    //decoder->frame->pkt_pts = 0;
-    decoder->frame->pkt_dts = 0;
-    decoder->frame->color_range = AVCOL_RANGE_MPEG;
-    decoder->frame->color_primaries = AVCOL_PRI_BT470BG;
-    decoder->frame->color_trc = AVCOL_TRC_SMPTE170M;
-    decoder->frame->colorspace = AVCHROMA_LOC_LEFT;
+    framebuff_alloc(decoder, 360, 800);
 
     if (!decoder_open_sinks(decoder)) {
         LOGE("Could not open decoder sinks");
@@ -287,7 +293,7 @@ decoder_push(struct decoder *decoder, const AVPacket *packet) {
     /* Check for errors */
     if (context.status != MMAL_SUCCESS)
        return false;
-
+    static int frame_diffcount = 0;
     /* Send data to decode to the input port of the video mmal_decoder */
     if ((packet != NULL ) && (buffer = mmal_queue_get(pool_in->queue)) != NULL)
     {
@@ -313,6 +319,7 @@ decoder_push(struct decoder *decoder, const AVPacket *packet) {
 	    status = mmal_port_send_buffer(mmal_decoder->input[0], buffer);
 	    CHECK_STATUS(status, "failed to send buffer");
 	    in_count++;
+
     }
 
     /* Get our output frames */
@@ -413,9 +420,14 @@ decoder_push(struct decoder *decoder, const AVPacket *packet) {
           //we use one AVFrame object for all frames (no unref commited).
           //av_frame_unref(decoder->frame);
           mmal_buffer_header_release(buffer);
+
+          new_frame--;
        }
     }
-
+    if((in_count - out_count) > frame_diffcount){
+  	  frame_diffcount = (in_count - out_count);
+  	  fprintf(stderr,"Diff increasing: %d = %u - %u\n", frame_diffcount, in_count, out_count);
+    }
     /* Send empty buffers to the output port of the mmal_decoder */
     while ((buffer = mmal_queue_get(pool_out->queue)) != NULL)
     {

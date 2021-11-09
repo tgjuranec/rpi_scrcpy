@@ -19,7 +19,7 @@
 
 #define HEADER_SIZE 12
 #define NO_PTS UINT64_C(-1)
-extern unsigned int new_frame;
+extern  int new_frame;
 static bool
 stream_recv_packet(struct stream *stream, AVPacket *packet) {
     // The video stream contains raw packets, without time information. When we
@@ -241,7 +241,8 @@ run_stream(void *data) {
             // no new packet
             //break;
         	//just check new decoded frames
-        	if(new_frame){
+        	if(new_frame > 0){
+        		//LOGE("Frame read from the loop: %d!!!!", new_frame);
         		ok = push_packet_to_sinks(stream, NULL);
         		new_frame = 0;
         	}
