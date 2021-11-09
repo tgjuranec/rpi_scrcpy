@@ -18,7 +18,7 @@
     MMAL_COMPONENT_T *mmal_decoder = NULL;
     MMAL_POOL_T *pool_in = NULL, *pool_out = NULL;
     MMAL_BOOL_T eos_sent = MMAL_FALSE, eos_received = MMAL_FALSE;
-    unsigned int in_count = 0, out_count = 0;
+    unsigned int in_count = 0, out_count = 0, new_frame = 0;
     MMAL_BUFFER_HEADER_T *buffer;
 
 /** Context for our application */
@@ -135,6 +135,11 @@ static void output_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buffer)
 
    /* Kick the processing thread */
    vcos_semaphore_post(&ctx->semaphore);
+
+   /*fprintf(stderr, "decoded frame (flags %x, size %d, decoder %p) count %d - %d\n",
+			  buffer->flags, buffer->length, globDecoder,in_count, out_count);*/
+   new_frame++;
+   out_count++;
 }
 
 #endif
@@ -188,7 +193,7 @@ decoder_open(struct decoder *decoder, const AVCodec *codec) {
         return false;
     }
     int nBytes = avpicture_get_size(AV_PIX_FMT_YUV420P, 384, 800);
-    LOGE("Frame size: %d",nBytes);
+    LOGE("Decoder: %p",decoder);
     const uint8_t *frBuffer = (const uint8_t *) av_malloc(nBytes);
     if(!frBuffer ){
     	av_frame_free(&decoder->frame);
@@ -219,7 +224,6 @@ decoder_open(struct decoder *decoder, const AVCodec *codec) {
         avcodec_free_context(&decoder->codec_ctx);
         return false;
     }
-
     return true;
 }
 
@@ -285,32 +289,30 @@ decoder_push(struct decoder *decoder, const AVPacket *packet) {
        return false;
 
     /* Send data to decode to the input port of the video mmal_decoder */
-    if ((buffer = mmal_queue_get(pool_in->queue)) != NULL)
+    if ((packet != NULL ) && (buffer = mmal_queue_get(pool_in->queue)) != NULL)
     {
-       //SOURCE_READ_DATA_INTO_BUFFER(buffer);
     	//FROM FFMEGS' PACKET TO MMAL'S BUFFER
+    	//PUSH DATA TO HARDWARE DECODER
 
     	//WE get errors.... Error event signalled... status 7
     	//Possible reasons:
-    	//1. too large packet
+    	//1. too large packet > 80000 causes Error
 
     	if(packet->size > 80000){
     		fprintf(stderr,"IN:%d - OUT:%d. packet size: %d\n", in_count, out_count,packet->size);
     	}
-		   buffer->data = packet->data;
-		   buffer->length = packet->size;
+		buffer->data = packet->data;
+	    buffer->length = packet->size;
 
 
-		   if(!buffer->length) eos_sent = MMAL_TRUE;
+	    if(!buffer->length) eos_sent = MMAL_TRUE;
 
-		   buffer->flags = buffer->length ? 0 : MMAL_BUFFER_HEADER_FLAG_EOS;
-		   buffer->pts = buffer->dts = MMAL_TIME_UNKNOWN;
+	    buffer->flags = buffer->length ? 0 : MMAL_BUFFER_HEADER_FLAG_EOS;
+	    buffer->pts = buffer->dts = MMAL_TIME_UNKNOWN;
 		   //fprintf(stderr, "sending %i bytes\n", (int)buffer->length);
-		   status = mmal_port_send_buffer(mmal_decoder->input[0], buffer);
-		   CHECK_STATUS(status, "failed to send buffer");
-		   in_count++;
-
-
+	    status = mmal_port_send_buffer(mmal_decoder->input[0], buffer);
+	    CHECK_STATUS(status, "failed to send buffer");
+	    in_count++;
     }
 
     /* Get our output frames */
@@ -377,9 +379,6 @@ decoder_push(struct decoder *decoder, const AVPacket *packet) {
        }
        else
        {
-          fprintf(stderr, "decoded frame (flags %x, size %d, offset %d) count %d\n",
-        		  buffer->flags, buffer->length, buffer->offset,out_count);
-
           // Do something here with the content of the buffer
           //from the mmal we get 460800 bytes YUV420
           //data[0] - 307200 = 384*800*6/8 8bita po pixelu
@@ -414,7 +413,6 @@ decoder_push(struct decoder *decoder, const AVPacket *packet) {
           //we use one AVFrame object for all frames (no unref commited).
           //av_frame_unref(decoder->frame);
           mmal_buffer_header_release(buffer);
-          out_count++;
        }
     }
 
@@ -519,6 +517,7 @@ decoder_init(struct decoder *decoder) {
     };
 
     decoder->packet_sink.ops = &ops;
+
 
 #ifdef 	RPI_H264_HDEC
 

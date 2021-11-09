@@ -19,7 +19,7 @@
 
 #define HEADER_SIZE 12
 #define NO_PTS UINT64_C(-1)
-
+extern unsigned int new_frame;
 static bool
 stream_recv_packet(struct stream *stream, AVPacket *packet) {
     // The video stream contains raw packets, without time information. When we
@@ -35,7 +35,7 @@ stream_recv_packet(struct stream *stream, AVPacket *packet) {
     // It is followed by <packet_size> bytes containing the packet/frame.
 
     uint8_t header[HEADER_SIZE];
-    ssize_t r = net_recv_all(stream->socket, header, HEADER_SIZE);
+    ssize_t r = net_recv_nb(stream->socket, header, HEADER_SIZE);
     if (r < HEADER_SIZE) {
         return false;
     }
@@ -238,16 +238,24 @@ run_stream(void *data) {
     for (;;) {
         bool ok = stream_recv_packet(stream, packet);
         if (!ok) {
-            // end of stream
-            break;
+            // no new packet
+            //break;
+        	//just check new decoded frames
+        	if(new_frame){
+        		ok = push_packet_to_sinks(stream, NULL);
+        		new_frame = 0;
+        	}
         }
-
-        ok = stream_push_packet(stream, packet);
-        av_packet_unref(packet);
-        if (!ok) {
-            // cannot process packet (error already logged)
-            break;
+        else{
+        	//new packet
+			ok = stream_push_packet(stream, packet);
+			av_packet_unref(packet);
+	        if (!ok) {
+	            // cannot process packet (error already logged)
+	            break;
+	        }
         }
+        usleep(1000);
     }
 
     LOGD("End of frames");
