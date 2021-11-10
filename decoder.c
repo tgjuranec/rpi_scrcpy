@@ -182,7 +182,7 @@ static bool framebuff_alloc(struct decoder *decoder,int width, int height){
         avcodec_free_context(&decoder->codec_ctx);
         return false;
     }
-    avpicture_fill((AVPicture *)decoder->frame, frBuffer, AV_PIX_FMT_YUV420P,width, height);
+    avpicture_fill((AVPicture *)decoder->frame, frBuffer, AV_PIX_FMT_YUV420P,aligned_width, height);
     decoder->frame->linesize[0] = aligned_width;
     decoder->frame->linesize[1] = aligned_width/2;
     decoder->frame->linesize[2] = aligned_width/2;
@@ -393,14 +393,19 @@ decoder_push(struct decoder *decoder, const AVPacket *packet) {
           //data[2] - 76800 = 192*800*6/8 2bita po pixelu
           AVFrame *fr = decoder->frame;
 /*COPY DATA*/
-          memcpy(fr->data[0],buffer->data, buffer->length*2/3);
+          /*
           memcpy(fr->data[1],buffer->data + buffer->length*2/3,buffer->length/6);
           memcpy(fr->data[2],buffer->data + buffer->length*5/6,buffer->length/6);
-/*
+          memcpy(fr->data[0],buffer->data, buffer->length*2/3);
+*/
+          //TEST - FILL WITH ZEROS
+          //memset(fr->data[0] + buffer->length/2, 0, buffer->length/6);
+          //END TEST
+
           decoder->frame->data[0] = buffer->data;
           decoder->frame->data[1] = buffer->data + buffer->length*2/3;
           decoder->frame->data[2] = buffer->data + buffer->length*5/6;
-*/
+
  /*         LOGE("AVFrame: %p %d %p %d %p %d\n%p\n%d x %d\nFormat: %d\nKeyFrame: %d\n Crop: (%d, %d, %d, %d)\n%d",
           		fr->data[0], //0xa6ab4020,...
           		fr->linesize[0], //384
