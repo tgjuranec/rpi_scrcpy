@@ -21,6 +21,7 @@
     unsigned int in_count = 0, out_count = 0;
     int new_frame = 0;
     MMAL_BUFFER_HEADER_T *buffer;
+    MMAL_BUFFER_HEADER_T *mmal_buffer_active[2];
 
 /** Context for our application */
 static struct CONTEXT_T {
@@ -140,7 +141,7 @@ static void output_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buffer)
    /*fprintf(stderr, "decoded frame (flags %x, size %d, decoder %p) count %d - %d\n",
 			  buffer->flags, buffer->length, globDecoder,in_count, out_count);*/
    new_frame++;
-   out_count++;
+
 }
 
 #endif
@@ -424,8 +425,11 @@ decoder_push(struct decoder *decoder, const AVPacket *packet) {
           //following function resets all data in AVFrame and only first frame is valid
           //we use one AVFrame object for all frames (no unref commited).
           //av_frame_unref(decoder->frame);
-          mmal_buffer_header_release(buffer);
-
+          mmal_buffer_active[out_count%2] = buffer;
+          if(ok && (out_count > 0)){
+        	  mmal_buffer_header_release(mmal_buffer_active[(out_count-1) %2]);
+          }
+          out_count++;
           new_frame--;
        }
     }
@@ -595,7 +599,7 @@ decoder_init(struct decoder *decoder) {
      * our buffer headers. We use the buffer pool API to create these. */
     mmal_decoder->input[0]->buffer_num = mmal_decoder->input[0]->buffer_num_recommended;
     mmal_decoder->input[0]->buffer_size = 100000;
-    mmal_decoder->output[0]->buffer_num = mmal_decoder->output[0]->buffer_num_recommended;
+    mmal_decoder->output[0]->buffer_num = 2;
     mmal_decoder->output[0]->buffer_size = mmal_decoder->output[0]->buffer_size_recommended;
     pool_in = mmal_port_pool_create(mmal_decoder->input[0],
                                     mmal_decoder->input[0]->buffer_num,
