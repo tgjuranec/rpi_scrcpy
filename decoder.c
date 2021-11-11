@@ -9,7 +9,7 @@
 
 /** Downcast packet_sink to decoder */
 #define DOWNCAST(SINK) container_of(SINK, struct decoder, packet_sink)
-#define RPI_H264_HDEC
+//#define RPI_H264_HDEC
 
 #ifdef RPI_H264_HDEC
 #include "rpi_h264.h"
@@ -21,7 +21,6 @@
     unsigned int in_count = 0, out_count = 0;
     int new_frame = 0;
     MMAL_BUFFER_HEADER_T *buffer;
-    MMAL_BUFFER_HEADER_T *mmal_buffer_active[2];
 
 /** Context for our application */
 static struct CONTEXT_T {
@@ -141,7 +140,7 @@ static void output_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buffer)
    /*fprintf(stderr, "decoded frame (flags %x, size %d, decoder %p) count %d - %d\n",
 			  buffer->flags, buffer->length, globDecoder,in_count, out_count);*/
    new_frame++;
-
+   out_count++;
 }
 
 #endif
@@ -173,17 +172,9 @@ decoder_open_sinks(struct decoder *decoder) {
     return true;
 }
 
-static bool framebuff_alloc(struct decoder *decoder,int width, int height){
+static bool avframe_set_params(struct decoder *decoder,int width, int height){
 	int aligned_width = width + (PROC_ALIGNMENT - width%PROC_ALIGNMENT);
-    int nBytes = avpicture_get_size(AV_PIX_FMT_YUV420P, aligned_width, height);
-    const uint8_t *frBuffer = (const uint8_t *) av_malloc(nBytes);
-    if(!frBuffer ){
-    	av_frame_free(&decoder->frame);
-        avcodec_close(decoder->codec_ctx);
-        avcodec_free_context(&decoder->codec_ctx);
-        return false;
-    }
-    avpicture_fill((AVPicture *)decoder->frame, frBuffer, AV_PIX_FMT_YUV420P,aligned_width, height);
+
     decoder->frame->linesize[0] = aligned_width;
     decoder->frame->linesize[1] = aligned_width/2;
     decoder->frame->linesize[2] = aligned_width/2;
@@ -222,7 +213,8 @@ decoder_open(struct decoder *decoder, const AVCodec *codec) {
         avcodec_free_context(&decoder->codec_ctx);
         return false;
     }
-    framebuff_alloc(decoder, 360, 800);
+
+
 
     if (!decoder_open_sinks(decoder)) {
         LOGE("Could not open decoder sinks");
@@ -375,9 +367,17 @@ decoder_push(struct decoder *decoder, const AVPacket *packet) {
              {
                 fprintf(stderr, "commit failed on output - %d\n", status);
              }
+             //IMPORTANT!!!!!
+             //DO NOT SEND format->es->video.width and format->es->video.height
+             //Got segfault
+             int new_width = mmal_decoder->output[0]->format->es->video.crop.width;
+             int new_height = mmal_decoder->output[0]->format->es->video.crop.height;
+             avframe_set_params(decoder, new_width , new_height );
 
+             fprintf(stderr,"framebuff_alloc called. W: %d, H: %d\n", new_width, new_height);
              mmal_port_enable(mmal_decoder->output[0], output_callback);
              pool_out = mmal_port_pool_create(mmal_decoder->output[0], mmal_decoder->output[0]->buffer_num, mmal_decoder->output[0]->buffer_size);
+
           }
           else
           {
@@ -425,11 +425,8 @@ decoder_push(struct decoder *decoder, const AVPacket *packet) {
           //following function resets all data in AVFrame and only first frame is valid
           //we use one AVFrame object for all frames (no unref commited).
           //av_frame_unref(decoder->frame);
-          mmal_buffer_active[out_count%2] = buffer;
-          if(ok && (out_count > 0)){
-        	  mmal_buffer_header_release(mmal_buffer_active[(out_count-1) %2]);
-          }
-          out_count++;
+          mmal_buffer_header_release(buffer);
+
           new_frame--;
        }
     }
@@ -572,8 +569,8 @@ decoder_init(struct decoder *decoder) {
     MMAL_ES_FORMAT_T *format_in = mmal_decoder->input[0]->format;
     format_in->type = MMAL_ES_TYPE_VIDEO;
     format_in->encoding = MMAL_ENCODING_H264;
-    format_in->es->video.width = 360;
-    format_in->es->video.height = 800;
+    format_in->es->video.width = 0;
+    format_in->es->video.height = 0;
 
     status = mmal_port_format_commit(mmal_decoder->input[0]);
     CHECK_STATUS(status, "failed to commit format");
@@ -598,8 +595,8 @@ decoder_init(struct decoder *decoder) {
     /* The format of both ports is now set so we can get their buffer requirements and create
      * our buffer headers. We use the buffer pool API to create these. */
     mmal_decoder->input[0]->buffer_num = mmal_decoder->input[0]->buffer_num_recommended;
-    mmal_decoder->input[0]->buffer_size = 100000;
-    mmal_decoder->output[0]->buffer_num = 2;
+    mmal_decoder->input[0]->buffer_size = 120000;
+    mmal_decoder->output[0]->buffer_num = mmal_decoder->output[0]->buffer_num_recommended;
     mmal_decoder->output[0]->buffer_size = mmal_decoder->output[0]->buffer_size_recommended;
     pool_in = mmal_port_pool_create(mmal_decoder->input[0],
                                     mmal_decoder->input[0]->buffer_num,
