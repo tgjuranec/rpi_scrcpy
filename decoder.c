@@ -9,7 +9,7 @@
 
 /** Downcast packet_sink to decoder */
 #define DOWNCAST(SINK) container_of(SINK, struct decoder, packet_sink)
-//#define RPI_H264_HDEC
+#define RPI_H264_HDEC
 
 #ifdef RPI_H264_HDEC
 #include "rpi_h264.h"
@@ -173,7 +173,7 @@ decoder_open_sinks(struct decoder *decoder) {
 }
 
 static bool avframe_set_params(struct decoder *decoder,int width, int height){
-	int aligned_width = width + (PROC_ALIGNMENT - width%PROC_ALIGNMENT);
+	int aligned_width = width-1 + (PROC_ALIGNMENT - (width-1)%PROC_ALIGNMENT);
 
     decoder->frame->linesize[0] = aligned_width;
     decoder->frame->linesize[1] = aligned_width/2;
@@ -595,7 +595,7 @@ decoder_init(struct decoder *decoder) {
     /* The format of both ports is now set so we can get their buffer requirements and create
      * our buffer headers. We use the buffer pool API to create these. */
     mmal_decoder->input[0]->buffer_num = mmal_decoder->input[0]->buffer_num_recommended;
-    mmal_decoder->input[0]->buffer_size = 120000;
+    mmal_decoder->input[0]->buffer_size = 150000;
     mmal_decoder->output[0]->buffer_num = mmal_decoder->output[0]->buffer_num_recommended;
     mmal_decoder->output[0]->buffer_size = mmal_decoder->output[0]->buffer_size_recommended;
     pool_in = mmal_port_pool_create(mmal_decoder->input[0],
